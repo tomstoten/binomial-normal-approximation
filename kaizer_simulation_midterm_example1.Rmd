@@ -1,0 +1,212 @@
+---
+output:
+  bookdown::pdf_document2:
+    toc: false
+    number_sections: false
+documentclass: article
+geometry: margin=0.95in
+classoption:
+- twocolumn
+bibliography: kaizer_simulation_sample1.bib
+csl: alex_vancouver.csl
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(kableExtra) # load for tables
+```
+
+<!-- Title here: -->
+
+# \textit{The t-test and Non-Normal Data: Where Did the Power Go?}
+
+<!-- Name here: -->
+
+Alexander M. Kaizer, PhD[^1]
+
+[^1]: Department of Biostatistics and Informatics, Colorado School of Public Health, University of Colorado Anschutz Medical Campus, Aurora, CO
+
+## Abstract
+
+Power calculations are built on assumptions for a given model. If we violate these assumptions we may not have the expected power, type I error rate, or other properties that we would have expected when designing the experiment. Power and type I error rates are evaluated in this simulation study for a two-sample t-test to analyze data across various effect sizes simulated from the normal, log-normal, chi-squared, and exponential distributions. Results are summarized to provide practical insights for the simulated scenarios.
+
+*Keywords: simulation, power, non-normal data, t-test*
+
+## Introduction
+
+When designing a new experiment a power calculation is often used to identify the sample size needed to achieve a given level of power based on an assumed estimate of our variability, effect size, and level of significance. Depending on our outcome of interest, a specific statistical approach must be chosen to use in the power calculation. For example, a study with categorical outcome compared across groups may use a chi-squared test, whereas a study comparing means between two groups may use a two-sample t-test. Each test has its own assumptions for when it is appropriate to use the statistical test, with violations leading to various departures from the expected performance. The purpose of this paper is to examine the implication of the departure from normality for a two-sample t-test.
+
+## Motivating Problem
+
+In this simulation study we will examine how type I error rates and power are affected by the distribution of the underlying data across a range of effect sizes when conducting a two-sample t-test. It is known that one of the assumptions of the two-sample t-test is that the data is normally distributed [@student1908probable; @wiki_Students_t-test]. In reality, one does not know the "true" underlying distribution of the data collected. If the resulting power or type I error rate deviates it may lead to erroneous conclusions, which would indicate the importance of identifying the appropriate distribution for a power calculation.
+
+## Simulation Set-up
+
+To address how robust the t-test is to the departure from normality, we will explore four distributions with the following parameterization for the first group:
+
+1.  Normal with $\mu_{N}=50$ and $\sigma_{N}=8$
+2.  Log-normal with $\mu_{L}=\log\left(\frac{\mu_N^2}{\sqrt{\mu_N^2 + \sigma_{N}^2}}\right)$ and $\sigma_{L}=\sqrt{\log\left(1 + \frac{\sigma_{N}^2}{\mu_N^2} \right)}$
+3.  Chi-squared with degrees of freedom of $k=50$
+4.  Exponential with a rate of $\lambda=\frac{1}{50}$
+
+These parameters were all chosen to reflect identical means of 50. Further, the log-normal distribution also has its $\sigma_{L}$ chosen to reflect an identical standard deviation to the normal distribution, whereas the standard deviation of the chi-squared and exponential distributions depend directly on their mean and cannot be fixed in the same manner. Figure \ref{fig:density-plot} presents what these distributions look like under these parameterizations, where it can be seen that the exponential distribution is decidedly non-normal and heavily right skewed, whereas the log-normal and chi-squared distributions are more similar to the underlying assumption of normality.
+
+\vspace{-5mm}
+
+```{r density-plot, fig.cap="Density of Group 1", echo=F}
+# Plot parameters to set for mean and sd for use in plotting densities
+meanp <- 50
+sdp <- 8
+
+# Plot exponential distribution density
+xseq <- seq(from=0, to=100, by=0.01)
+plot(x=xseq, y=dexp(xseq, rate=1/meanp), ylim=c(0,0.065), 
+     xlab='X', ylab='Density', 
+     type='l', col='purple', lwd=2, lty=4)
+
+# Add normal density
+curve(dnorm(x, mean=meanp, sd=sdp), add=T, lwd=2)
+
+# Add log-normal density
+curve(dlnorm(x, meanlog=log(meanp^2 / sqrt(meanp^2 + sdp^2)), 
+             sdlog=sqrt( log(1 + (sdp^2 / meanp^2)) )), 
+      add=T, lwd=2, col='orangered2', lty=2)
+
+# Add chi-squared density
+curve(dchisq(x, df=meanp), add=T, lwd=2, col='gray65', lty=5)
+
+# Add legend
+legend('topright', col=c('black','orangered2','gray65','purple'),
+       lty=c(1,2,5,4), lwd=rep(2,4), bty='n', 
+       legend=c('Normal','Log-Normal','Chi-Squared','Exponential'))
+```
+
+The effect size of the group will be simulated across a grid from 0 to 10 in increments of 0.1 (i.e., 50 to 60), with 1000 simulations at each increment. All simulations will generate 30 observations for each group, which corresponds to a detectable difference of `r round(power.t.test(n=30, delta=NULL, sd=8, sig.level=0.05, power=0.8)$delta,1)` with 80% power and $\alpha=0.05$ for a two-sample t-test. The results will be presented graphically across the grid of effect sizes, as well as in a table at effect sizes of 0 and `r round(power.t.test(n=30, delta=NULL, sd=8, sig.level=0.05, power=0.8)$delta,1)+50` to reflect the type I error and power assumptions under the normal distribution. R v4.1.0 (Vienna, Austria) will be used for all analyses.
+
+```{r simulation-implementation, echo=F, cache=T}
+# Create function to implement simulations for given combination
+
+power_calc_ttest <- function(mean1,mean2,sd,nsim,ngrp=30,seed=515){
+### Function to implement power calculation for given mean
+# mean1: mean for group 1
+# mean2: mean for group 2
+# sd: sd for group 1
+# nsim: number of simulations to use in estimating power calculation
+# ngrp: number to simulate in each group (default is 30)
+# seed: seed to set for simulations (default is 515)
+  
+  set.seed(515) # set seed for reproducibility
+  
+  # Proportion of t-tests with p<0.05 for normally distributed data
+  res_norm <- mean( sapply(1:nsim, function(x) 
+    t.test(x=rnorm(n=ngrp, mean=mean1, sd=sd), 
+           y=rnorm(n=ngrp, mean=mean2, sd=sd))$p.value < 0.05 ) )
+  
+  # Proportion of t-tests with p<0.05 for exponentially distributed data
+  mean1_log <- log(mean1^2 / sqrt(mean1^2 + sd^2))
+  mean2_log <- log(mean2^2 / sqrt(mean2^2 + sd^2))
+  sd1_log <- sqrt( log(1 + (sd^2 / mean1^2)) )
+  sd2_log <- sqrt( log(1 + (sd^2 / mean2^2)) )
+  res_lognorm <- mean( sapply(1:nsim, function(x) 
+    t.test(x=rlnorm(n=ngrp, meanlog=mean1_log, sd=sd1_log), 
+           y=rlnorm(n=ngrp, mean=mean2_log, sd=sd2_log))$p.value < 0.05 ) )
+  
+  # Proportion of t-tests with p<0.05 for chi-squared distributed data
+  res_chisq <-mean( sapply(1:nsim, function(x) 
+    t.test(x=rchisq(n=ngrp, df=mean1), 
+           y=rchisq(n=ngrp, df=mean2))$p.value < 0.05 ) )
+  
+  # Proportion of t-tests with p<0.05 for exponentially distributed data
+  res_exp <-mean( sapply(1:nsim, function(x) 
+    t.test(x=rexp(n=ngrp, rate=1/mean1), 
+           y=rexp(n=ngrp, rate=1/mean2))$p.value < 0.05 ) )
+  
+  # Return vector of estimated power
+  ret <- c('normal'=res_norm, 
+           'lognormal'=res_lognorm, 
+           'chisq'=res_chisq, 
+           'exponential'=res_exp)
+  return( ret )
+}
+
+# Use sapply to generate simulation results across vector of difference values
+delta_vec <- seq(0,10,by=0.1)
+sim_res <- sapply(delta_vec, 
+                  function(x) power_calc_ttest(mean1=50, mean2=50+x, sd=8, nsim=1000))
+
+# Add column names to reflect delta_vec
+colnames(sim_res) <- delta_vec
+```
+
+## Results
+
+Table \ref{tab:result-table} highlights the estimated type I error rate when the difference is 0 and the power when the difference is 5.9 (corresponding to 80% based on our power calculation). The overall simulation results are presented graphically across the entire range of differences in Figure \ref{fig:result-plot}.
+
+```{r result-table, echo=F}
+# Extract results for null case and scenario with expected 80% power
+tab_res <- sim_res[,c('0','5.9')]
+rownames(tab_res) <- c('Normal','Log-Normal','Chi-squared','Exponential')
+
+# Create table of results
+kbl(tab_res, 
+    caption = 'Type I Error at Difference=0 and Power at Difference=5.9 for Two-Sample t-Test when $n=30$ per Group', 
+    booktabs=T, align='cc',
+    col.names = c('Difference = 0','Difference = 5.9'))  %>%
+    collapse_rows(columns=1, latex_hline='major', valign='middle') %>%
+    kable_styling(latex_options = "HOLD_position")
+```
+
+When data are simulated from the null hypothesis of no difference, the type I error rate is near the desired 5% for the normal distribution (`r 100*tab_res['Normal','0']`%) and the chi-squared distribution (`r 100*tab_res['Chi-squared','0']`%). For the log-normal distribution and the exponential distribution the estimated type I error rate was near 4% (`r 100*tab_res['Log-Normal','0']`% and `r 100*tab_res['Exponential','0']`%, respectively) (Table \ref{tab:result-table}).
+
+At a difference of 5.9 units between groups, power is expected to be 80% based on the power calculation. The estimated power for both the normal and log-normal distributions is extremely close to this estimate (`r 100*tab_res['Normal','5.9']`% and `r 100*tab_res['Log-Normal','5.9']`%, respectively). The chi-squared distribution is underpowered at `r 100*tab_res['Chi-squared','5.9']`%, with the exponential distribution being severely underpowered with only `r 100*tab_res['Exponential','5.9']`% power (Table \ref{tab:result-table}).
+
+Figure \ref{fig:result-plot} suggests these trends hold across the range of examined differences. The log-normal and normal distributions are extremely similar, with over 90% power around a difference of 7. Data generated from a chi-squared distribution is consistently lower, but does achieve 80% power if the difference is above `r delta_vec[which(sim_res['chisq',] >= 0.80)[1]]`. Meanwhile, the exponential distribution reaches a maximum power of `r 100*max(sim_res['exponential',])`%.
+
+```{r result-plot, fig.cap="Estimated Power Across Range of Differences between Groups", echo=F}
+# Plot results from simulation
+plot(x=delta_vec, y=sim_res['normal',], 
+     type='l', lwd=2,
+     xlab='Difference between Groups', ylab='Power')
+
+# Add reference lines
+abline(h=c(0.8,0.9), v=5.9, col='gray85')
+
+# Add other distributions
+lines(x=delta_vec, y=sim_res['lognormal',], col='orangered2', lty=2, lwd=2)
+lines(x=delta_vec, y=sim_res['chisq',], col='gray65', lty=5, lwd=2)
+lines(x=delta_vec, y=sim_res['exponential',], col='purple', lty=4, lwd=2)
+
+# Add legend
+legend('right', col=c('black','orangered2','gray65','purple'),
+       lty=c(1,2,5,4), lwd=rep(2,4), bty='n', 
+       legend=c('Normal','Log-Normal','Chi-Squared','Exponential'),
+       title='Distribution')
+```
+
+## Conclusion
+
+These simulation results suggest that as your underlying data generating distribution is more normal, the expected power more closely matches what would be observed if you had truly normal data. For example, the log-normal distribution had similar results to the normal distribution, and when comparing the shapes of their densities in Figure \ref{fig:density-plot}, they are fairly similar.
+
+The chi-squared distribution eventually achieves adequate power over 80% with larger differences, but is underpowered relative to the normally generated data. This suggests that if one expects data to be chi-squared distributed, a larger sample size may be needed to maintain the desired power or a larger difference should be expected if the sample size cannot be altered.
+
+If the data is expected to be strongly right skewed with a decidedly non-normal shape, such as with the exponential distribution, then none of the results from this simulation study imply satisfactory results. Future work must be done to examine what combinations of sample size, difference, and other factors are needed to attain the desired power.
+
+There are limitations to this simulation study. One is that only three non-normal distributions were considered, but they do represent a range of features from nearly normal (e.g., log-normal) to decidedly non-normal (e.g., exponential). Additionally, the bias of the estimates was not examined. Identifying the potential implications of bias should be explored in future work.
+
+In practice, making assumptions about the expected data can have significant impacts on the statistical power of a future analysis. Care should be taken when conducting power calculations, and if a sharp deviation from the assumptions of a t-test are expected the appropriate statistical test to use in analyzing the data should be considered for both the power calculation and future analysis.
+
+\newpage
+\onecolumn
+
+## References
+
+\vspace{2mm}
+
+::: {#refs}
+:::
+
+## Code Appendix
+
+```{r, ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```

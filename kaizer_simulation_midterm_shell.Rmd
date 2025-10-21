@@ -1,0 +1,119 @@
+---
+output:
+  bookdown::pdf_document2:
+    toc: false
+    number_sections: false
+documentclass: article
+geometry: margin=0.95in
+classoption:
+- twocolumn
+bibliography: Approximations.bib
+csl: alex_vancouver.csl
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(kableExtra) # load for tables
+```
+
+<!-- Title here: -->
+
+# \textit{How Normal is the Binomial?}
+
+<!-- Name here: -->
+
+Tom Stoughton, MS Candidate[^1]
+
+[^1]: Department of Biostatistics and Informatics, Colorado School of Public Health, University of Colorado Anschutz Medical Campus, Aurora, CO
+
+## Abstract
+
+In 1738, Abraham de Moivre introduced in his book *The doctrine of chances: or, A method of calculating the probabilities of events in play* a formulation on how the sum of terms of the Binomial (along with many other distributions) could be approximated using an exponential equation of a familiar form. Later, this equation was translated to fit the form of a Normal distribution, with the Binomial parameters $n$ and $p$ showing up in the Normal parameters: $\mu = np, \sigma^2 = npq$ where $q = 1-p$. While most textbooks and other resources provide the useful constraint that $np$ be "not too small" and "not too big", the general rule-of-thumb for this Normal approximation to be considered "good" is that $np \geq 10$ and $nq \geq 10$. This study tests the extents of these imprecise guidelines, attempting to find more rigid constraints on what $n$ and $p$ must be in order to have a good approximation of the Binomial distribution with a Normal distribution. The Kullback-Leibler (KL) divergence is used to quantitatively measure the difference between Binomial and Normal samples in a simulation study, with color-coded grids visualizing results.
+
+*Keywords: Binomial, Normal, simulation, Kullback-Leibler, approximation*
+
+## Introduction
+
+Approximating the Binomial distribution with the Normal has long been a staple of statistical pedagogy and applied inference, yet the conditions under which this approximation holds are often left vague. Textbooks typically assert that when both $np$ and $nq$ exceed 10, the Binomial can be considered approximately Normal. However, this threshold is more heuristic than empirically derived. The Normal approximation is widely used in power calculations, inference for proportions, and even in the design of sampling procedures—contexts where understanding the boundaries of its validity is crucial.
+
+This study re-examines those boundaries through simulation. By systematically varying $n$ and $p$, generating both Binomial and Normal samples with corresponding parameters, and measuring their divergence, we aim to identify more precise regions where the approximation performs well and where it breaks down.
+
+## Motivating Problem
+
+The primary motivation for this work stems from the ambiguity of the conventional rule-of-thumb. What exactly constitutes “large enough” $n$ or $np$ for the approximation to behave acceptably? Simple visual comparisons, such as overlaid histograms, suggest that at $np = 10$, the match between the two distributions is tenuous at best. Increasing $n$ improves smoothness, but it remains unclear whether this alone guarantees a good fit, especially for extreme $p$ values near 0 or 1.
+
+In exploratory plots, even with $n=10,000$, the approximation only appears visually satisfactory when $np > 100$. For smaller $np$ values, discrepancies persist, particularly in the tails. These observations motivate a quantitative approach—measuring how “Normal” the Binomial truly is under a wide range of parameter combinations.
+
+## Simulation Set-up
+
+Describe your simulation study.
+
+An example of a figure is below. In the Rmd file, the `chunk-name` can be changed to whatever you want so that it can be referenced using `\ref{tab:chunk-name}` (where "tab" represents a table, "fig" is for a figure).
+
+**NOTE: the code chunks have `echo=F` to suppress the code from appearing in your limited 2 page report. It can still automatically appear at the end in the appendix with a nifty line of code that appears at the end!**
+
+```{r chunk-name, fig.cap="Caption for Figure", echo=F}
+# Create figure to demonstrate something graphically
+
+set.seed(515) # set seed to reproduce example figure
+hist(rnorm(100), xlab='X')
+```
+
+The code chunk(s) to implement your simulation study might be good to include at the end of this section:
+
+```{r simulation-implementation, echo=F, cache=T}
+# Implement your simulation(s) in this code chunk
+
+mysim <- function(x){
+  # function here for example
+}
+
+# Run simulation
+#sapply(1:1000, function(x) mysim(x))
+```
+
+## Results
+
+Write your results in this section. The interpretation or implications of results will primarily appear in the following Discussion/Conclusion section.
+
+One example you can use to create a table in our PDF output example here is with the `kableExtra` package:
+
+```{r result-table, echo=F}
+# Extract results for null case and scenario with expected 80% power
+tab_res <- matrix(1:8, nrow=4, ncol=2) # made up matrix with results
+rownames(tab_res) <- c('Row 1','Row 2','Row 3','Row 4')
+
+# Create table of results
+kbl(tab_res, 
+    caption = 'Caption for table', 
+    booktabs=T, align='cc',
+    col.names = c('Column 1 of Results','Column 2 of Results'))  %>%
+    collapse_rows(columns=1, latex_hline='major', valign='middle') %>%
+    kable_styling(latex_options = "HOLD_position")
+```
+
+## Conclusion
+
+Write your conclusion here where you interpret the results for your given context, including any limitations.
+
+<!-- The code below creates a new page with a single column for your references and code used in the manuscript -->
+
+\newpage
+\onecolumn
+
+## References
+
+\vspace{2mm}
+
+<!-- Remove the following line of code if not using a .bib file to generate references -->
+
+::: {#refs}
+:::
+
+## Code Appendix
+
+<!-- The following code pulls all your code chunks from the paper and puts them here at the end (so you can keep "echo=F" in the code chunks above but they still appear here) -->
+
+```{r, ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
