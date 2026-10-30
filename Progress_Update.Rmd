@@ -1,5 +1,5 @@
 ---
-title: "Approximations"
+title: "Progress_Update"
 output: pdf_document
 date: "2025-10-07"
 ---
@@ -39,7 +39,7 @@ for(n in ns) {
     p_title <- sprintf("n = %g, p = %.6f, np = %.2f", n, p, mu)
     
     plot <- ggplot(df, aes(x = value, fill = distribution)) +
-      geom_histogram(position = "identity", bins = 30, alpha = 0.5, color = "black") +
+      geom_histogram(position = "identity", bins = 20, alpha = 0.5, color = "black") +
       scale_fill_manual(values = c("Binomial" = "skyblue", "Normal" = "salmon")) +
       labs(
         title = sprintf("Binomial vs Normal Approximation\nn = %g, p = %.6f, np = %.2f", n, p, mu),
@@ -57,6 +57,56 @@ for(n in ns) {
 ```
 
 From above, I found that $n > 1,000$ tends to give good results, and when $np = 10$ the plots don't quite look similar enough to be worth comparing.
+
+```{r}
+library(entropy)
+
+# Parameter grids
+ns <- round(10^(seq(from = 0, to = 5, by = 0.5)))
+ps <- 10^-(seq(from = 0.5, to = 3, by = 0.5))
+ps <- sort(c(ps, 0.5, 1 - ps))
+nsamples <- 1000
+nsim <- 100
+
+results <- data.frame(
+  n = integer(),
+  p = numeric(),
+  sim = integer(),
+  KL = numeric()
+)
+
+set.seed(54321)
+
+for (i in seq_along(ns)) {
+  for (j in seq_along(ps)) {
+    n <- ns[i]
+    p <- ps[j]
+    
+    for (sim_i in 1:nsim) {
+      # Sample from two binomials with slightly different p
+      binom1 <- rbinom(n = nsamples, size = n, prob = p)
+      binom2 <- rbinom(n = nsamples, size = n, prob = p)
+      
+      combined <- c(binom1, binom2)
+      bins <- pretty(range(combined), n = 20)
+      
+      counts1 <- hist(binom1, breaks = bins, plot = FALSE)$counts + 1e-10
+      counts2 <- hist(binom2, breaks = bins, plot = FALSE)$counts + 1e-10
+      
+      kl <- KL.plugin(counts1, counts2)
+      
+      # Append to results
+      results <- rbind(results, data.frame(n = n, p = p, sim = sim_i, KL = kl))
+    }
+  }
+}
+
+# View first few rows
+head(results)
+
+# Optional: summarize mean KL per (n,p)
+aggregate(KL ~ n + p, data = results, FUN = mean)
+```
 
 So I want to use KL divergence to create a sort of heat-map of what values of $n$ and $p$ produce "good" approximations for the Normal to the Binomial.
 
@@ -91,11 +141,11 @@ for (i in seq_along(ns)) {
       binom  <- rbinom(n = nsamples, size = n, prob = p)
       
       combined <- c(normal, binom)
-      bins <- pretty(range(combined), n = 30)
+      bins <- pretty(range(combined), n = 20)
       countsN <- hist(normal, breaks = bins, plot = FALSE)$counts + 1e-10
       countsB <- hist(binom, breaks = bins, plot = FALSE)$counts + 1e-10
       
-      kl <- KL.plugin(countsB, countsN, unit = "log10")
+      kl <- KL.plugin(countsB, countsN)
       
       # Append result to data frame
       results <- rbind(results, data.frame(n = n, p = p, sim = sim_i, KL = kl))
@@ -111,7 +161,7 @@ Now visualize results.
 
 ```{r}
 library(dplyr)
-KL.threshold = 0.1
+KL.threshold = 0.065
 summary_results <- results %>%
   group_by(n, p) %>%
   reframe(
@@ -121,7 +171,8 @@ summary_results <- results %>%
     np = n * p,
     np1 = n * (1 - p),
     valid_normal = (n * p >= 10) & (n * (1 - p) >= 10),
-    new_normal = (n * p >= 30) & (n * (1 - p) >= 30)
+    new_normal = (n * p >= 50) & (n * (1 - p) >= 50),
+    new_normal_w_var = (n * p >= 50) & (n * (1 - p) >= 50) & (n*p*(1-p) < 120)
   )
 df <- summary_results %>%
   mutate(
@@ -134,7 +185,7 @@ df <- summary_results %>%
 ```{r}
 sci3 <- function(x) {
   x_num <- as.numeric(as.character(x))
-  format(x_num, scientific = TRUE, digits = 3)
+  format(x_num, scientific = F, digits = 3)
 }
 
 ```
@@ -142,13 +193,14 @@ sci3 <- function(x) {
 ```{r}
 library(ggplot2)
 
+
 ggplot(df, aes(x = p_f, y = n_f, fill = mean_KL)) +
   geom_tile(color = "white") +
   geom_tile(data = df[df$valid_normal, ],
             color = "darkgray", size = 1, fill = NA) +  # Highlight valid cells
   geom_tile(data = df[df$new_normal, ],
             color = "black", size = 1, fill = NA) +
-  scale_fill_gradient(low = "white", high = "red", name = "Mean KL (log10)") +
+  scale_fill_gradient(low = "white", high = "red", name = "Mean KL") +
   labs(
     title = "Mean KL(Binomial || Normal)",
     x = "p (probability of success)",
@@ -188,14 +240,38 @@ ggplot(df, aes(x = p_f, y = n_f, fill = var_KL)) +
 ```{r}
 ggplot(df, aes(x = p_f, y = n_f, fill = threshold)) +
   geom_tile(color = "white") +
-  geom_tile(data = df[df$valid_normal, ],
-            color = "darkgray", size = 1, fill = NA) +
-  geom_tile(data = df[df$new_normal, ],
-            color = "black", size = 1, fill = NA) +  # Highlight valid cells
-  scale_fill_gradient(low = "white", high = "darkgreen", 
-                      name = paste0("Percentage of KL < ", KL.threshold)) +
+  geom_tile(
+    data = df[df$valid_normal, ],
+    aes(color = "Old R.o.T"),   # <— add aesthetic mapping
+    size = 3, fill = NA
+  ) +
+  geom_tile(
+    data = df[df$new_normal, ],
+    aes(color = "Strict R.o.T"),     # <— add aesthetic mapping
+    size = 2, fill = NA
+  ) +
+  geom_tile(
+    data = df[df$new_normal_w_var, ],
+    aes(color = "Proposed R.o.T"),  # <— add aesthetic mapping
+    size = 1, fill = NA
+  ) +
+  scale_fill_gradient(
+    low = "white", high = "black",
+    name = paste0("Percentage of KL < ", KL.threshold)
+  ) +
+  scale_color_manual(
+    name = "Border Legend",       # legend title
+    values = c(
+      "Old R.o.T" = "red",
+      "Strict R.o.T" = "blue",
+      "Proposed R.o.T" = "green"
+    )
+  ) +
   labs(
-    title = paste0("Percentage of KL(Binomial || Normal) trials under threshold ", KL.threshold),
+    title = paste0(
+      "Percentage of KL(Binomial || Normal) trials under threshold ",
+      KL.threshold
+    ),
     x = "p (probability of success)",
     y = "n (number of trials)"
   ) +
@@ -206,22 +282,12 @@ ggplot(df, aes(x = p_f, y = n_f, fill = threshold)) +
     axis.text.x = element_text(angle = 45, hjust = 1),
     plot.title = element_text(hjust = 0.5)
   )
+
 ```
 
 ```{r}
-ggplot(df, aes(x = p_f, y = n_f, fill = as.numeric(valid_normal))) +
-  geom_tile(color = "white") +
-  scale_fill_gradient(low = "white", high = "orange", name = "NP and N(1-P) >= 10") +
-  labs(
-    title = "NP >= 10 and N(1-P) >= 10",
-    x = "p (probability of success)",
-    y = "n (number of trials)"
-  ) +
-  scale_x_discrete(labels = sci3) +
-  scale_y_discrete(labels = sci3) +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    plot.title = element_text(hjust = 0.5)
-  )
+print(mean(df[df$valid_normal,]$threshold))
+print(mean(df[df$new_normal,]$threshold))
+print(mean(df[df$new_normal_w_var,]$threshold))
+mean(df$threshold)
 ```

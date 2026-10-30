@@ -1,0 +1,341 @@
+---
+output:
+  bookdown::pdf_document2:
+    toc: false
+    number_sections: false
+documentclass: article
+geometry: margin=0.95in
+classoption:
+- twocolumn
+bibliography: sources.bib
+csl: vancouver.csl
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(kableExtra) # load for tables
+```
+
+<!-- Title here: -->
+
+# \textit{How Normal is the Binomial?}
+
+<!-- Name here: -->
+
+Tom Stoughton, MS Candidate[^1]
+
+[^1]: Department of Biostatistics and Informatics, Colorado School of Public Health, University of Colorado Anschutz Medical Campus, Aurora, CO
+
+## Abstract
+
+Approximating the Binomial distribution with the Gaussian (Normal) has long been a staple of statistical pedagogy and applied inference, yet the conditions under which this approximation holds are often left vague. Textbooks suggest that $np$ and $nq$ should exceed 10, but this threshold is heuristic. This study systematically tests these guidelines using simulation, generating Binomial and corresponding Normal samples across a grid of $n$ and $p$ values. The Kullback-Leibler (KL) divergence quantifies the difference between distributions, and color-coded grids visualize regions where the approximation is reliable. Based on these results, a new rule-of-thumb is proposed, offering a more consistent criterion for when the Normal approximation to the Binomial is valid.
+
+*Keywords: Binomial, Normal, simulation, Kullback-Leibler, approximation*
+
+## Introduction
+
+De Moivre (1738)[@de1738doctrine] showed that the Binomial could be approximated by an exponential expression later translated to the Normal distribution with parameters $\mu = np$ and $\sigma^2 = npq$, where $q = 1-p$. The common rule-of-thumb for a "good" approximation is $np, nq \ge 10$, but its empirical validity is unclear. This study evaluates the quality of the Normal approximation through simulation. For each $(n, p)$ combination, Binomial and Normal samples are generated, and the KL divergence is computed:
+$$
+D_{KL}(P || Q) = \sum_{x \in \mathcal{X}}P(x)\log{\frac{P(x)}{Q(x)}}
+$$
+where $P = Binom(n,p)$ and $Q = Norm(np, npq)$. Because KL requires distributions of the same type, we use an empirical binned approach with 20 bins. To define an acceptable approximation, we use a baseline from simulating a Binomial against itself, finding a maximum mean KL of 0.065. KL values below this threshold indicate a Normal approximation is as accurate as another Binomial simulation, which will be the criteria for defining a "good" approximation in this study. 
+
+```{r finding-KL-threshold, echo=F, cache=T}
+# Simulating binomials to calculate empirical KL divergence between the same exact distribution
+
+library(entropy)
+
+# Parameter grids
+ns <- round(10^(seq(from = 0, to = 5, by = 0.5)))
+ps <- 10^-(seq(from = 0.5, to = 3, by = 0.5))
+ps <- sort(c(ps, 0.5, 1 - ps))
+nsamples <- 1000
+nsim <- 100
+
+results <- data.frame(
+  n = integer(),
+  p = numeric(),
+  sim = integer(),
+  KL = numeric()
+)
+
+set.seed(54321)
+
+for (i in seq_along(ns)) {
+  for (j in seq_along(ps)) {
+    n <- ns[i]
+    p <- ps[j]
+    
+    for (sim_i in 1:nsim) {
+      # Sample from two binomials with slightly different p
+      binom1 <- rbinom(n = nsamples, size = n, prob = p)
+      binom2 <- rbinom(n = nsamples, size = n, prob = p)
+      
+      combined <- c(binom1, binom2)
+      bins <- pretty(range(combined), n = 20)
+      
+      counts1 <- hist(binom1, breaks = bins, plot = FALSE)$counts + 1e-10
+      counts2 <- hist(binom2, breaks = bins, plot = FALSE)$counts + 1e-10
+      
+      kl <- KL.plugin(counts1, counts2)
+      
+      # Append to results
+      results <- rbind(results, data.frame(n = n, p = p, sim = sim_i, KL = kl))
+    }
+  }
+}
+
+# View first few rows
+#head(results)
+
+# Optional: summarize mean KL per (n,p)
+#aggregate(KL ~ n + p, data = results, FUN = mean)
+
+# The maxmimum KL value is ~ 0.065
+```
+
+## Motivating Problem
+
+The primary motivation for this work stems from the ambiguity of the conventional rule-of-thumb: what exactly counts as "large enough" $n$ or $np$ for a good Normal approximation? Visual comparisons suggest that at $np = 10$, the match is weak. Increasing $n$ improves smoothness, but it does not guarantee a good fit, especially for extreme $p$ values near 0 or 1. Exploratory plots (Figure \ref{fig:approx-hist}) show that even with $n=10,000$, the approximation is only visually satisfactory when $np > 100$, with discrepancies persisting for smaller $np$. These observations motivate a quantitative assessment of how well the Binomial can be approximated by the Normal across a broad range of parameters.
+
+```{r approx-hist, fig.cap="Comparison of Binomial and Normal distribution samples (10,000 samples)", echo=F, fig.height=9, fig.width=8, cache=T}
+library(ggplot2)
+library(patchwork)
+
+nsamples <- 10000
+set.seed(54321)
+
+# Define combinations of interest
+combinations <- data.frame(
+  n = c(100, 100, 1000, 1000, 10000, 10000),
+  p = c(0.1, 0.5, 0.01, 0.5, 0.001, 0.5)
+)
+
+plots <- list()
+
+for (i in seq_len(nrow(combinations))) {
+  n <- combinations$n[i]
+  p <- combinations$p[i]
+  mu  <- n * p
+  var <- n * p * (1 - p)
+  
+  # Generate samples
+  normal <- rnorm(n = nsamples, mean = mu, sd = sqrt(var))
+  binom  <- rbinom(n = nsamples, size = n, prob = p)
+  
+  df <- data.frame(
+    value = c(binom, normal),
+    Dist = rep(c("Binomial", "Normal"), each = nsamples)
+  )
+  
+  # Create plot
+  plots[[i]] <- ggplot(df, aes(x = value, fill = Dist)) +
+    geom_histogram(position = "identity", bins = 20, alpha = 0.5, color = "black") +
+    scale_fill_manual(values = c("Binomial" = "skyblue", "Normal" = "salmon")) +
+    labs(
+      title = sprintf("n = %g, np = %d, nq = %d", n, mu, n - mu),
+      x = "Value",
+      y = "Count"
+    ) +
+    theme_minimal(base_size = 16) +
+    theme(
+      plot.title = element_text(size = 16, face = "bold")
+    )
+}
+
+final_plot <- (plots[[1]] | plots[[2]]) /
+              (plots[[3]] | plots[[4]]) /
+              (plots[[5]] | plots[[6]]) +
+              plot_layout(guides = "collect") +
+              plot_annotation(
+                title = "Binomial vs Normal Approximation",
+                theme = theme(plot.title = element_text(size = 16, face = "bold"))
+              ) &
+              theme(legend.position = "bottom",
+                    legend.text = element_text(size = 16),
+                    legend.title = element_text(size = 16))
+
+print(final_plot)
+```
+
+## Simulation Set-up
+
+The simulation examines a grid of $(n, p)$ values. For each combination, we compute the mean KL divergence and the proportion of simulations where KL < 0.065. Each $(n, p)$ pair is simulated 10,000 times, generating distributions of Binomial and Normal samples as described above. The $p$ values were chosen to ensure that $np = 10$ (and similarly $nq = 10$) with at least one $p$ value for each $n$, with $p = 0.5$ included to maintain symmetry.
+```{r simulation-code, echo=F, cache=T}
+library(entropy)
+
+ns <- round(10^(seq(from = 0, to = 5, by = 0.5)))
+ps <- 10^-(seq(from = 0.5, to = 3, by = 0.5))
+ps <- sort(c(ps, 0.5, 1-ps))
+nsamples <- 1000
+nsim <- 100
+
+results <- data.frame(
+  n = integer(),
+  p = numeric(),
+  sim = integer(),
+  KL = numeric()
+)
+
+set.seed(54321)
+
+for (i in seq_along(ns)) {
+  for (j in seq_along(ps)) {
+    n <- ns[i]
+    p <- ps[j]
+    
+    mu  <- n * p
+    var <- n * p * (1 - p)
+    
+    for (sim_i in 1:nsim) {
+      normal <- rnorm(n = nsamples, mean = mu, sd = sqrt(var))
+      binom  <- rbinom(n = nsamples, size = n, prob = p)
+      
+      combined <- c(normal, binom)
+      bins <- pretty(range(combined), n = 20)
+      countsN <- hist(normal, breaks = bins, plot = FALSE)$counts + 1e-10
+      countsB <- hist(binom, breaks = bins, plot = FALSE)$counts + 1e-10
+      
+      kl <- KL.plugin(countsB, countsN)
+      
+      # Append result to data frame
+      results <- rbind(results, data.frame(n = n, p = p, sim = sim_i, KL = kl))
+    }
+  }
+}
+```
+
+## Results
+
+The quality of the Normal approximation was evaluated using three rules-of-thumb for $(n, p)$. The first was the **conventional rule:** $np, nq \geq 10$, next was the **strict rule:** $np, nq \geq 50$, and finally, the **Proposed rule:** $np, nq \geq 50$ and $npq < 100$.
+
+```{r kl-threshold-coverage, fig.cap="Color maps showing percentage of simulations with KL < 0.065, and borders highlighting cells following the rule-of-thumb.", echo=F, cache=T, fig.height=15, fig.width=8, warning=F}
+library(ggplot2, quietly = TRUE, warn.conflicts = FALSE)
+library(patchwork, quietly = TRUE, warn.conflicts = FALSE)
+library(dplyr, quietly = TRUE, warn.conflicts = FALSE)
+
+sci3 <- function(x) {
+  x_num <- as.numeric(as.character(x))
+  format(x_num, scientific = F, digits = 3)
+}
+
+KL.threshold = 0.065
+summary_results <- results %>%
+  group_by(n, p) %>%
+  reframe(
+    mean_KL = mean(KL),
+    var_KL = var(KL),
+    threshold = mean(KL <= KL.threshold),
+    np = n * p,
+    np1 = n * (1 - p),
+    valid_normal = (n * p >= 10) & (n * (1 - p) >= 10),
+    new_normal = (n * p >= 50) & (n * (1 - p) >= 50),
+    new_normal_w_var = (n * p >= 50) & (n * (1 - p) >= 50) & (n*p*(1-p) < 100)
+  )
+df <- summary_results %>%
+  mutate(
+    n_f = factor(n, levels = sort(unique(n))),
+    p_f = factor(p, levels = sort(unique(p)))
+  )
+
+# Base function to create one plot per R.o.T.
+create_rot_plot <- function(border_name, border_color) {
+  ggplot(df, aes(x = p_f, y = n_f, fill = threshold)) +
+    geom_tile(color = "white") +
+    geom_tile(
+      data = switch(border_name,
+                    "Conventional rule-of-thumb" = df[df$valid_normal, ],
+                    "Strict rule-of-thumb" = df[df$new_normal, ],
+                    "Proposed rule-of-thumb" = df[df$new_normal_w_var, ]),
+      color = border_color,
+      size = 1, fill = NA
+    ) +
+    scale_fill_gradient(
+      low = "white", high = "black",
+      name = paste0("Percentage of KL < ", KL.threshold)
+    ) +
+    labs(
+      title = border_name,
+      x = "p (probability of success)",
+      y = "n (number of trials)"
+    ) +
+    scale_x_discrete(labels = sci3) +
+    scale_y_discrete(labels = sci3) +
+    theme_minimal(base_size = 18) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 15)
+    )
+}
+
+# Create three plots
+plot_old   <- create_rot_plot("Conventional rule-of-thumb", "salmon")
+plot_strict <- create_rot_plot("Strict rule-of-thumb", "skyblue")
+plot_proposed <- create_rot_plot("Proposed rule-of-thumb", "lightgreen")
+
+# Stack vertically
+final_plot <- plot_old / plot_strict / plot_proposed +
+  plot_layout(guides = "collect")  +
+  plot_annotation(
+    title = "Color Maps for KL Coverage and Rules of Thumb",
+    theme = theme(plot.title = element_text(size = 16, face = "bold"))
+  ) & 
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 13),
+        legend.title = element_text(size = 15))
+
+print(final_plot)
+```
+
+The KL coverage metric was defined as the percentage of simulations where KL < 0.065, the threshold determined from exploratory analysis. Under these criteria, the coverage increased as the rules became more stringent. This is clearly shown in Figure \ref{fig:kl-threshold-coverage}, where the strict and proposed rules highlight fewer cells, focusing on the darker ones with higher KL coverage. This demonstrates that the proposed rule-of-thumb more reliably identifies $(n, p)$ combinations where the Binomial is well-approximated by the Normal by accounting for the variance of the Normal approximation. Table \ref{tab:kl-coverage-table} shows the average of the coverage metric for all the $n, p$ combinations for that rule.
+
+```{r kl-coverage-table, echo=F}
+tab_res <- data.frame(
+  Rule = c(
+    "Conventional", 
+    "Strict", 
+    "Proposed"
+  ),
+  `Coverage` = c("66.15%", "69.37%", "78.86%")
+)
+
+# Create table
+kbl(tab_res, 
+    caption = 'Average KL coverage (Percent) for different rules-of-thumb', 
+    booktabs = TRUE,
+    align = 'cc') %>%
+  collapse_rows(columns = 1, latex_hline = 'major', valign = 'middle') %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+## Conclusion
+
+The proposed rule-of-thumb, requiring $np, nq \geq 50$ and $npq < 100$, provides improved Normal approximations over both the conventional and stricter existing rules. The conventional rule ($np, nq \geq 10$) performs reasonably well for moderate $p$ and sufficiently large $n$, but it fails for extreme $p$ values or smaller $n$. The stricter rule ($np, nq \geq 50$) improves reliability but does not exclude extreme variance combinations; the proposed rule addresses this by adding an upper bound on $npq$, increasing KL coverage to approximately 79%. For practical application, the range of $n$ satisfying the proposed rule for a given $p$ is:
+$$
+\frac{50}{min(p, q)} \leq n \leq \frac{100}{pq}
+$$
+where $q = 1-p$.
+
+However, some limitations remain: $n$ must still be fairly large for these rules to apply reliably, and many $(n, p)$ pairs outside this range can still yield good approximations. Additionally, while KL coverage improves, it does not guarantee perfect agreement, particularly in the tails of the distribution. Nonetheless, this refined rule provides a more rigorous, quantitative framework for assessing when the Binomial is effectively Normal. Future work could more systematically explore the $(n, p)$ parameter space and perform a focused grid search to optimize thresholds for $np$, $nq$, and $npq$ to further maximize KL coverage, refining the proposed rule-of-thumb and better identifying regions where the Normal approximation reliably matches the Binomial.
+
+<!-- The code below creates a new page with a single column for your references and code used in the manuscript -->
+
+\newpage
+\onecolumn
+
+## References
+
+\vspace{2mm}
+
+<!-- Remove the following line of code if not using a .bib file to generate references -->
+
+::: {#refs}
+:::
+
+## Code Appendix
+
+<!-- The following code pulls all your code chunks from the paper and puts them here at the end (so you can keep "echo=F" in the code chunks above but they still appear here) -->
+
+```{r, ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
